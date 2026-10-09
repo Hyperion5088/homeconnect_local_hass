@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import pytest
 from homeassistant.components.select import (
     ATTR_OPTION,
     ATTR_OPTIONS,
@@ -11,6 +12,7 @@ from homeassistant.components.select import (
 )
 from homeassistant.components.select import DOMAIN as SELECT_DOMAIN
 from homeassistant.const import ATTR_ENTITY_ID, ATTR_FRIENDLY_NAME, STATE_UNKNOWN
+from homeconnect_websocket.entities import Program
 from homeconnect_websocket.message import Action, Message
 
 from . import setup_config_entry
@@ -277,3 +279,47 @@ async def test_favorite_name_arrives_and_changes(
     message = mock_appliance.session.send_sync.call_args.args[0]
     assert message.resource == "/ro/selectedProgram"
     assert message.data["program"] == 502
+
+
+@pytest.mark.parametrize(
+    ("execution", "resource"),
+    [
+        ("selectonly", "/ro/selectedProgram"),
+        ("selectandstart", "/ro/selectedProgram"),
+        ("startonly", "/ro/activeProgram"),
+    ],
+)
+async def test_favorite_uses_saved_options(
+    hass: HomeAssistant,
+    mock_appliance: MockAppliance,
+    patch_entity_description: None,
+    execution: str,
+    resource: str,
+) -> None:
+    """Do not replay previous drink options into a saved favourite."""
+    favorite = Program(
+        {
+            "uid": 600,
+            "name": "BSH.Common.Program.Favorite.001",
+            "execution": execution,
+            "available": True,
+            "options": [{"refUID": 401}, {"refUID": 402}],
+        },
+        mock_appliance,
+    )
+    mock_appliance.programs[favorite.name] = favorite
+    assert len(favorite._build_options()) == 2
+    assert await setup_config_entry(hass, CONFIG_ENTRIES[0])
+    mock_appliance.session.send_sync.reset_mock()
+    await hass.services.async_call(
+        SELECT_DOMAIN,
+        SERVICE_SELECT_OPTION,
+        {
+            ATTR_ENTITY_ID: "select.fake_brand_homeappliance_selectedprogram",
+            ATTR_OPTION: "Named Favorite",
+        },
+        blocking=True,
+    )
+    mock_appliance.session.send_sync.assert_awaited_once_with(
+        Message(resource=resource, action=Action.POST, data={"program": 600, "options": []})
+    )

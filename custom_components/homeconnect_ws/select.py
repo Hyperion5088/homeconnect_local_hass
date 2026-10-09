@@ -117,7 +117,9 @@ class HCProgram(HCSelect):
         labels = self._program_labels()
         reverse = {value: key for key, value in labels.items()}
         selected_program = self._runtime_data.appliance.programs[reverse[option]]
+        # Saved favourites own their options; avoid stale drink-option overrides.
+        favorite = selected_program.name.startswith("BSH.Common.Program.Favorite.")
         if selected_program.execution in (Execution.SELECT_ONLY, Execution.SELECT_AND_START):
-            await selected_program.select()
+            await selected_program.select(override_options=favorite)
         elif selected_program.execution == Execution.START_ONLY:
-            await selected_program.start()
+            await selected_program.start(override_options=favorite)
